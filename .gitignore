@@ -38,3 +38,7 @@ build/
 
 # .gitignore
 .env
+
+# Сборка Maven/Gradle
+target/
+*.jar

@@ -288,7 +288,8 @@ public class Tutorial extends TelegramLongPollingBot {
                         "Раскрой законы своего личного денежного потока.\n\n" +
                         "✨ Узнай:\n" +
                         "- В каких сферах деятельности ты можешь раскрыть свой потенциал\n" +
-                        "- Как достичь финансового успеха и глубокого удовлетворения от работы");
+                        "- Как достичь финансового успеха и глубокого удовлетворения от работы\n\n" +
+                        " За прогнозом на каждый день переходи в мой канал \uD83D\uDC9B  - https://t.me/Zazina_TD");
                 execute(contactMessage);
 
                 // Второе сообщение с контактом
@@ -302,8 +303,9 @@ public class Tutorial extends TelegramLongPollingBot {
                 e.printStackTrace();
             }
         } else {
-            message.setText("У меня есть для вас подарок! Хотите получить?");
-            message.setReplyMarkup(createConfirmationKeyboard());
+            message.setText("Если передумаешь, пиши за разбором мне лично - https://t.me/ZAZINA_TATYANA  \uD83D\uDE4C\n" +
+                    "Хорошего дня! \uD83D\uDE0A");
+
         }
     }
 
