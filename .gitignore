@@ -39,6 +39,7 @@ build/
 # .gitignore
 .env
 node_modules/
+*.pdf
 
 # Сборка Maven/Gradle
 target/
