@@ -38,6 +38,7 @@ build/
 
 # .gitignore
 .env
+node_modules/
 
 # Сборка Maven/Gradle
 target/
