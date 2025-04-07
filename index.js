@@ -3,14 +3,18 @@ import dotenv from 'dotenv';
 import pg from 'pg';
 const { Pool } = pg;
 import fs from 'fs';
-import path from 'path';
+import express from 'express';
 
 dotenv.config();
+
+// Проверка среды выполнения (добавьте эту строку)
+const isRailway = process.env.RAILWAY_ENVIRONMENT === 'production';
 
 console.log('Токен из token.env:', process.env.TELEGRAM_BOT_TOKEN);
 
 // Константы
 const PDF_BASE_PATH = './pdfs/';
+const ADMIN_ID = process.env.ADMIN_ID || '199775458';
 
 // Состояния пользователя
 const UserState = {
@@ -25,16 +29,41 @@ const UserState = {
 
 // Инициализация бота
 const token = process.env.TELEGRAM_BOT_TOKEN;
-if (!token) {
-    throw new Error('Токен бота не найден! Проверьте переменную TELEGRAM_BOT_TOKEN');
-}
+if (!token) throw new Error('Токен бота не найден!');
 
-const bot = new TelegramBot(token, { polling: true });
+const bot = new TelegramBot(token, {
+  polling: !isRailway // Polling только локально
+});
+
+// Настройка webhook для Railway
+if (isRailway) {
+  const app = express();
+  const PORT = process.env.PORT || 3000;
+  const domain = process.env.RAILWAY_STATIC_URL;
+
+  app.use(express.json());
+
+  app.post(`/webhook`, (req, res) => {
+    bot.processUpdate(req.body);
+    res.sendStatus(200);
+  });
+
+  bot.setWebHook(`https://${domain}/webhook`)
+    .then(() => console.log('Webhook установлен на Railway'))
+    .catch(console.error);
+
+  app.listen(PORT, () => {
+    console.log(`Сервер запущен на порту ${PORT}`);
+  });
+}
 
 // Инициализация PostgreSQL
 const pool = new Pool({
-    connectionString: process.env.DATABASE_URL,
-    ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false
+    connectionString: process.env.DATABASE_URL.replace(
+        'postgres.railway.internal',
+        'monorail.proxy.rlwy.net' // Заменяем на реальный хост
+    ),
+    ssl: { rejectUnauthorized: false }
 });
 
 // Создание таблиц при старте
@@ -55,15 +84,15 @@ const pool = new Pool({
             );
 
             CREATE TABLE IF NOT EXISTS arcs_stats (
-                              arc_number INTEGER PRIMARY KEY,
-                              request_count INTEGER DEFAULT 0,
-                              last_request TIMESTAMP
-                          );
-                      `);
-                      console.log('База данных готова');
-                  } catch (err) {
-                      console.error('Ошибка инициализации БД:', err);
-                  }
+                arc_number INTEGER PRIMARY KEY,
+                request_count INTEGER DEFAULT 0,
+                last_request TIMESTAMP
+            );
+        `);
+        console.log('База данных готова');
+    } catch (err) {
+        console.error('Ошибка инициализации БД:', err);
+    }
 })();
 
 // Хранилища данных
@@ -107,14 +136,13 @@ async function updateArcStats(arcanumNumber) {
     }
 }
 
-
-
 // Обработчики сообщений
-bot.on('message', (msg) => {
+bot.on('message', async (msg) => {
     const chatId = msg.chat.id;
     const text = msg.text;
 
     if (text === '/start') {
+        await updateUserStats(chatId, msg.from);
         handleStart(chatId);
     } else {
         const state = userStates.get(chatId) || UserState.START;
@@ -458,4 +486,17 @@ function isValidName(name) {
     return /^[A-Za-zА-Яа-яёЁ]{2,50}$/.test(name);
 }
 
-console.log('Бот запущен!');
+// Запуск бота
+if (!process.env.RAILWAY_ENV) {
+    bot.on('polling_error', (error) => {
+        console.error('Polling error:', error);
+    });
+    console.log('Бот запущен в режиме polling');
+} else {
+    console.log('Бот готов к работе через webhook');
+}
+console.log(
+  isRailway
+    ? 'Бот запущен в режиме production (Railway)'
+    : 'Бот запущен в режиме разработки (polling)'
+);
