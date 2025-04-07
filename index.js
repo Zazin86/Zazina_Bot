@@ -1,6 +1,8 @@
 import TelegramBot from 'node-telegram-bot-api';
 import dotenv from 'dotenv';
+import { Pool } from 'pg';
 import fs from 'fs';
+import path from 'path';
 
 dotenv.config();
 
@@ -28,9 +30,83 @@ if (!token) {
 
 const bot = new TelegramBot(token, { polling: true });
 
+// Инициализация PostgreSQL
+const pool = new Pool({
+    connectionString: process.env.DATABASE_URL,
+    ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false
+});
+
+// Создание таблиц при старте
+(async () => {
+    try {
+        await pool.query(`
+            CREATE TABLE IF NOT EXISTS users (
+                chat_id BIGINT PRIMARY KEY,
+                username TEXT,
+                first_name TEXT,
+                last_name TEXT,
+                gender TEXT,
+                name TEXT,
+                birth_date TEXT,
+                start_count INTEGER DEFAULT 0,
+                last_start TIMESTAMP,
+                arcs INTEGER[]
+            );
+
+            CREATE TABLE IF NOT EXISTS arcs_stats (
+                              arc_number INTEGER PRIMARY KEY,
+                              request_count INTEGER DEFAULT 0,
+                              last_request TIMESTAMP
+                          );
+                      `);
+                      console.log('База данных готова');
+                  } catch (err) {
+                      console.error('Ошибка инициализации БД:', err);
+                  }
+})();
+
 // Хранилища данных
 const userStates = new Map();
 const userData = new Map();
+
+// Функции для работы с БД
+async function updateUserStats(chatId, userInfo) {
+    try {
+        await pool.query(`
+            INSERT INTO users (chat_id, username, first_name, last_name, start_count, last_start)
+            VALUES ($1, $2, $3, $4, 1, NOW())
+            ON CONFLICT (chat_id) DO UPDATE SET
+                start_count = users.start_count + 1,
+                last_start = NOW(),
+                username = EXCLUDED.username,
+                first_name = EXCLUDED.first_name,
+                last_name = EXCLUDED.last_name
+        `, [
+            chatId,
+            userInfo.username || 'unknown',
+            userInfo.first_name || '',
+            userInfo.last_name || ''
+        ]);
+    } catch (err) {
+        console.error('Ошибка обновления статистики пользователя:', err);
+    }
+}
+
+async function updateArcStats(arcanumNumber) {
+    try {
+        await pool.query(`
+            INSERT INTO arcs_stats (arc_number, request_count, last_request)
+            VALUES ($1, 1, NOW())
+            ON CONFLICT (arc_number) DO UPDATE SET
+                request_count = arcs_stats.request_count + 1,
+                last_request = NOW()
+        `, [arcanumNumber]);
+    } catch (err) {
+        console.error('Ошибка обновления статистики аркана:', err);
+    }
+}
+
+
 
 // Обработчики сообщений
 bot.on('message', (msg) => {
@@ -68,23 +144,26 @@ bot.on('callback_query', (query) => {
     }
 });
 
-// Функции обработки
-function handleStart(chatId) {
-    userStates.set(chatId, UserState.WAITING_FOR_GENDER);
+// Модифицированные обработчики
+bot.on('message', async (msg) => {
+    const chatId = msg.chat.id;
+    const text = msg.text;
 
-    const keyboard = {
-        inline_keyboard: [
-            [
-                { text: 'Мужчина', callback_data: 'gender_male' },
-                { text: 'Девушка', callback_data: 'gender_female' }
-            ]
-        ]
-    };
+    if (text === '/start') {
+        await updateUserStats(chatId, msg.from);
+        handleStart(chatId);
+    } else {
+        const state = userStates.get(chatId) || UserState.START;
 
-    bot.sendMessage(chatId, 'Привет! Ты мужчина или девушка?', {
-        reply_markup: keyboard
-    });
-}
+        if (state === UserState.WAITING_FOR_NAME) {
+            handleNameInput(chatId, text);
+        } else if (state === UserState.WAITING_FOR_BIRTHDATE) {
+            handleBirthdateInput(chatId, text);
+        } else {
+            bot.sendMessage(chatId, 'Я не понимаю. Напиши /start, чтобы начать.');
+        }
+    }
+});
 
 function handleGenderSelection(chatId, gender) {
     storeUserData(chatId, 'gender', gender);
@@ -258,12 +337,30 @@ function handleMoreInfoRequest(chatId, confirmation) {
     }
 }
 // Вспомогательные функции
-function sendArcanumDocument(chatId, birthDate, callback) {
+async function sendArcanumDocument(chatId, birthDate, callback) {
     try {
         const day = parseInt(birthDate.split('.')[0]);
         const arcanumNumber = calculateArcanumNumber(day);
         const gender = getUserData(chatId, 'gender');
         const pdfPath = findArcanumPdf(arcanumNumber, gender);
+
+        // Обновляем статистику
+                await pool.query(`
+                    UPDATE users
+                    SET arcs = ARRAY_APPEND(COALESCE(arcs, '{}'::INTEGER[]), $1),
+                        gender = $2,
+                        name = $3,
+                        birth_date = $4
+                    WHERE chat_id = $5
+                `, [
+                    arcanumNumber,
+                    gender,
+                    getUserData(chatId, 'name'),
+                    birthDate,
+                    chatId
+                ]);
+
+        await updateArcStats(arcanumNumber);
 
         if (fs.existsSync(pdfPath)) {
             bot.sendDocument(chatId, pdfPath, {
@@ -281,6 +378,47 @@ function sendArcanumDocument(chatId, birthDate, callback) {
         callback(); // Все равно вызываем колбэк
     }
 }
+
+// Новая функция для получения статистики
+async function getBotStats() {
+    try {
+        const res = await pool.query(`
+            SELECT
+                (SELECT COUNT(*) FROM users) as total_users,
+                (SELECT SUM(start_count) FROM users) as total_starts,
+                (SELECT COUNT(*) FROM arcs_stats) as unique_arcs,
+                (SELECT SUM(request_count) FROM arcs_stats) as total_arc_requests
+        `);
+        return res.rows[0];
+    } catch (err) {
+        console.error('Ошибка получения статистики:', err);
+        return null;
+    }
+}
+
+// Команда для администратора
+bot.onText(/\/stats/, async (msg) => {
+    if (msg.chat.id.toString() !== process.env.ADMIN_ID) {
+        return bot.sendMessage(msg.chat.id, 'Эта команда доступна только администратору');
+    }
+
+    try {
+        const stats = await getBotStats();
+        if (!stats) {
+            return bot.sendMessage(msg.chat.id, 'Не удалось получить статистику');
+        }
+
+        const message = `📊 Статистика бота:
+👥 Всего пользователей: ${stats.total_users}
+🚀 Всего запусков: ${stats.total_starts}
+🔮 Уникальных арканов: ${stats.unique_arcs}
+📨 Запросов арканов: ${stats.total_arc_requests}`;
+
+        bot.sendMessage(msg.chat.id, message);
+    } catch (err) {
+        console.error('Ошибка обработки команды /stats:', err);
+    }
+});
 
 function calculateArcanumNumber(day) {
     if (day <= 22) return day;
