@@ -9,7 +9,6 @@ dotenv.config();
 // Проверка среды выполнения (добавьте эту строку)
 const isRailway = process.env.RAILWAY_ENVIRONMENT === 'production';
 
-
 console.log('Токен из token.env:', process.env.TELEGRAM_BOT_TOKEN);
 
 // Константы
@@ -103,64 +102,63 @@ const userData = new Map();
 
 // Обработчики сообщений
 bot.on('message', async (msg) => {
-  const chatId = msg.chat.id;
-  const text = msg.text;
-
-  if (text === '/start') {
-    updateStats('new_user', {
-      chatId,
-      username: msg.from.username || 'unknown'
-    });
-    updateStats('command', { command: '/start' });
-    handleStart(chatId);
-  } else {
+    const chatId = msg.chat.id;
+    const text = msg.text || '';
     const state = userStates.get(chatId) || UserState.START;
 
-    if (state === UserState.WAITING_FOR_NAME) {
-      handleNameInput(chatId, text);
-    } else if (state === UserState.WAITING_FOR_BIRTHDATE) {
-      handleBirthdateInput(chatId, text);
-    } else {
-      bot.sendMessage(chatId, 'Я не понимаю. Напиши /start, чтобы начать.');
+    try {
+        if (text === '/start') {
+            updateStats('new_user', {
+                chatId,
+                username: msg.from.username || 'unknown'
+            });
+            updateStats('command', { command: '/start' });
+            return handleStart(chatId);
+        }
+
+        switch(state) {
+            case UserState.WAITING_FOR_GENDER:
+                // Обрабатываем только callback, поэтому просто игнорируем текст
+                break;
+
+            case UserState.WAITING_FOR_NAME:
+                return handleNameInput(chatId, text);
+
+            case UserState.WAITING_FOR_BIRTHDATE:
+                return handleBirthdateInput(chatId, text);
+
+            default:
+                // Для всех остальных состояний
+                if (!text.startsWith('/')) {
+                    bot.sendMessage(chatId, 'Я не понимаю. Напиши /start, чтобы начать.');
+                }
+        }
+    } catch (error) {
+        console.error('Ошибка обработки сообщения:', error);
+        bot.sendMessage(chatId, 'Произошла ошибка. Попробуйте ещё раз.');
     }
-  }
 });
 
 bot.on('callback_query', (query) => {
-    const chatId = query.message.chat.id;
-    const data = query.data;
-    const state = userStates.get(chatId) || UserState.START;
+  const chatId = query.message.chat.id;
+  const data = query.data;
+  const state = userStates.get(chatId) || UserState.START;
 
-    if (state === UserState.WAITING_FOR_GENDER) {
-        handleGenderSelection(chatId, data);
-    } else if (state === UserState.CONFIRM_NAME) {
-        handleNameConfirmation(chatId, data);
-    } else if (state === UserState.CONFIRM_BIRTHDATE) {
-        handleBirthdateConfirmation(chatId, data);
-    } else if (state === UserState.WAITING_FOR_MORE) {
-        handleMoreInfoRequest(chatId, data);
+  try {
+    switch(state) {
+      case UserState.WAITING_FOR_GENDER:
+        return handleGenderSelection(chatId, data);
+      case UserState.CONFIRM_NAME:
+        return handleNameConfirmation(chatId, data);
+      case UserState.CONFIRM_BIRTHDATE:
+        return handleBirthdateConfirmation(chatId, data);
+      case UserState.WAITING_FOR_MORE:
+        return handleMoreInfoRequest(chatId, data);
     }
-});
-
-// Модифицированные обработчики
-bot.on('message', async (msg) => {
-    const chatId = msg.chat.id;
-    const text = msg.text;
-
-    if (text === '/start') {
-        await updateUserStats(chatId, msg.from);
-        handleStart(chatId);
-    } else {
-        const state = userStates.get(chatId) || UserState.START;
-
-        if (state === UserState.WAITING_FOR_NAME) {
-            handleNameInput(chatId, text);
-        } else if (state === UserState.WAITING_FOR_BIRTHDATE) {
-            handleBirthdateInput(chatId, text);
-        } else {
-            bot.sendMessage(chatId, 'Я не понимаю. Напиши /start, чтобы начать.');
-        }
-    }
+  } catch (error) {
+    console.error('Ошибка обработки callback:', error);
+    bot.sendMessage(chatId, 'Произошла ошибка. Попробуйте ещё раз.');
+  }
 });
 
 function handleGenderSelection(chatId, gender) {
@@ -335,6 +333,37 @@ function handleMoreInfoRequest(chatId, confirmation) {
     }
 }
 // Вспомогательные функции
+
+function handleStart(chatId) {
+    // Если уже в процессе диалога - не показываем приветствие снова
+    if (userStates.get(chatId) && userStates.get(chatId) !== UserState.START) {
+        return;
+    }
+
+    userStates.set(chatId, UserState.WAITING_FOR_GENDER);
+
+    const keyboard = {
+        inline_keyboard: [
+            [
+                { text: 'Мужчина', callback_data: 'gender_male' },
+                { text: 'Девушка', callback_data: 'gender_female' }
+            ]
+        ]
+    };
+
+    bot.sendMessage(chatId, 'Привет! Ты девушка или мужчина?', {
+        reply_markup: keyboard
+    });
+}
+
+async function updateUserStats(chatId, user) {
+    updateStats('new_user', {
+        chatId,
+        username: user.username || 'unknown'
+    });
+    updateStats('command', { command: '/start' });
+}
+
 async function sendArcanumDocument(chatId, birthDate, callback) {
     try {
         const day = parseInt(birthDate.split('.')[0]);

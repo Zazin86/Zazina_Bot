@@ -1,0 +1,107 @@
+{
+  "totalUsers": 19,
+  "activeUsers": [
+    {
+      "id": 199775458,
+      "username": "unknown",
+      "firstInteraction": "2025-04-07T21:13:06.387Z"
+    },
+    {
+      "id": 199775458,
+      "username": "unknown",
+      "firstInteraction": "2025-04-07T21:29:38.298Z"
+    },
+    {
+      "id": 1026718018,
+      "username": "Intscha2603",
+      "firstInteraction": "2025-04-07T21:29:38.305Z"
+    },
+    {
+      "id": 199775458,
+      "username": "unknown",
+      "firstInteraction": "2025-04-07T21:50:51.919Z"
+    },
+    {
+      "id": 1026718018,
+      "username": "Intscha2603",
+      "firstInteraction": "2025-04-07T21:50:51.925Z"
+    },
+    {
+      "id": 199775458,
+      "username": "unknown",
+      "firstInteraction": "2025-04-07T21:53:49.471Z"
+    },
+    {
+      "id": 1026718018,
+      "username": "Intscha2603",
+      "firstInteraction": "2025-04-07T21:53:49.481Z"
+    },
+    {
+      "id": 199775458,
+      "username": "unknown",
+      "firstInteraction": "2025-04-07T21:57:51.268Z"
+    },
+    {
+      "id": 1026718018,
+      "username": "Intscha2603",
+      "firstInteraction": "2025-04-07T21:57:51.276Z"
+    },
+    {
+      "id": 199775458,
+      "username": "unknown",
+      "firstInteraction": "2025-04-07T22:04:18.068Z"
+    },
+    {
+      "id": 199775458,
+      "username": "unknown",
+      "firstInteraction": "2025-04-07T22:04:18.080Z"
+    },
+    {
+      "id": 1026718018,
+      "username": "Intscha2603",
+      "firstInteraction": "2025-04-07T22:04:18.084Z"
+    },
+    {
+      "id": 1026718018,
+      "username": "Intscha2603",
+      "firstInteraction": "2025-04-07T22:04:18.087Z"
+    },
+    {
+      "id": 199775458,
+      "username": "unknown",
+      "firstInteraction": "2025-04-07T22:08:26.245Z"
+    },
+    {
+      "id": 199775458,
+      "username": "unknown",
+      "firstInteraction": "2025-04-07T22:08:26.253Z"
+    },
+    {
+      "id": 199775458,
+      "username": "unknown",
+      "firstInteraction": "2025-04-07T22:19:55.949Z"
+    },
+    {
+      "id": 199775458,
+      "username": "unknown",
+      "firstInteraction": "2025-04-07T22:28:34.694Z"
+    },
+    {
+      "id": 199775458,
+      "username": "unknown",
+      "firstInteraction": "2025-04-07T22:28:34.699Z"
+    },
+    {
+      "id": 199775458,
+      "username": "unknown",
+      "firstInteraction": "2025-04-07T22:42:40.437Z"
+    }
+  ],
+  "arcanaRequests": {
+    "11": 3,
+    "12": 1
+  },
+  "commandUsage": {
+    "/start": 19
+  }
+}
