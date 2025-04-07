@@ -1,5 +1,5 @@
 {
-  "totalUsers": 19,
+  "totalUsers": 22,
   "activeUsers": [
     {
       "id": 199775458,
@@ -95,6 +95,21 @@
       "id": 199775458,
       "username": "unknown",
       "firstInteraction": "2025-04-07T22:42:40.437Z"
+    },
+    {
+      "id": 199775458,
+      "username": "unknown",
+      "firstInteraction": "2025-04-07T23:36:26.334Z"
+    },
+    {
+      "id": 199775458,
+      "username": "unknown",
+      "firstInteraction": "2025-04-07T23:36:26.341Z"
+    },
+    {
+      "id": 199775458,
+      "username": "unknown",
+      "firstInteraction": "2025-04-07T23:36:26.344Z"
     }
   ],
   "arcanaRequests": {
@@ -102,6 +117,6 @@
     "12": 1
   },
   "commandUsage": {
-    "/start": 19
+    "/start": 22
   }
 }

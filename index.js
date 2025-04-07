@@ -4,12 +4,25 @@ import fs from 'fs';
 import path from 'path';
 import express from 'express';
 
+// 1. Загружаем конфигурацию
 dotenv.config();
 
-// Проверка среды выполнения (добавьте эту строку)
+// 2. Получаем токен
+const token = process.env.TELEGRAM_BOT_TOKEN;
+if (!token) {
+  console.error('Токен бота не найден! Проверьте файл .env');
+  process.exit(1);
+}
+
+// 3. Определяем режим работы
 const isRailway = process.env.RAILWAY_ENVIRONMENT === 'production';
 
-console.log('Токен из token.env:', process.env.TELEGRAM_BOT_TOKEN);
+// 4. Инициализируем бота
+const bot = new TelegramBot(token, {
+  polling: !isRailway // Теперь isRailway уже определен
+});
+
+console.log(`Бот запущен в режиме ${isRailway ? 'production (Railway)' : 'разработки (polling)'}`);
 
 // Константы
 const PDF_BASE_PATH = './pdfs/';
@@ -66,19 +79,17 @@ const UserState = {
     WAITING_FOR_MORE: 'WAITING_FOR_MORE'
 };
 
-// Инициализация бота
-const token = process.env.TELEGRAM_BOT_TOKEN;
-if (!token) throw new Error('Токен бота не найден!');
-
-const bot = new TelegramBot(token, {
-  polling: !isRailway // Polling только локально
-});
-
 // Настройка webhook для Railway
 if (isRailway) {
   const app = express();
   const PORT = process.env.PORT || 3000;
   const domain = process.env.RAILWAY_STATIC_URL;
+
+  // Проверка наличия домена
+  if (!domain) {
+    console.error('Railway domain not configured! Check your environment variables');
+    process.exit(1);
+  }
 
   app.use(express.json());
 
@@ -87,12 +98,23 @@ if (isRailway) {
     res.sendStatus(200);
   });
 
+  // Установка webhook
   bot.setWebHook(`https://${domain}/webhook`)
-    .then(() => console.log('Webhook установлен на Railway'))
-    .catch(console.error);
+    .then(() => {
+      console.log(`Webhook установлен на ${domain}`);
 
-  app.listen(PORT, () => {
-    console.log(`Сервер запущен на порту ${PORT}`);
+      app.listen(PORT, () => {
+        console.log(`Сервер запущен на порту ${PORT}`);
+      });
+    })
+    .catch(err => {
+      console.error('Ошибка установки webhook:', err.message);
+      process.exit(1);
+    });
+} else {
+  console.log('Бот запущен в режиме polling');
+  bot.on('polling_error', (error) => {
+    console.error('Polling error:', error);
   });
 }
 
