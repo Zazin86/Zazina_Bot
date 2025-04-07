@@ -1,6 +1,7 @@
 import TelegramBot from 'node-telegram-bot-api';
 import dotenv from 'dotenv';
-import { Pool } from 'pg';
+import pg from 'pg';
+const { Pool } = pg;
 import fs from 'fs';
 import path from 'path';
 
