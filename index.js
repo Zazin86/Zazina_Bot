@@ -1,8 +1,7 @@
 import TelegramBot from 'node-telegram-bot-api';
 import dotenv from 'dotenv';
-import pg from 'pg';
-const { Pool } = pg;
 import fs from 'fs';
+import path from 'path';
 import express from 'express';
 
 dotenv.config();
@@ -10,11 +9,52 @@ dotenv.config();
 // Проверка среды выполнения (добавьте эту строку)
 const isRailway = process.env.RAILWAY_ENVIRONMENT === 'production';
 
+
 console.log('Токен из token.env:', process.env.TELEGRAM_BOT_TOKEN);
 
 // Константы
 const PDF_BASE_PATH = './pdfs/';
 const ADMIN_ID = process.env.ADMIN_ID || '199775458';
+const STATS_FILE = path.join(process.cwd(), 'bot_stats.json');
+
+// Инициализация файла статистики
+function initStats() {
+  if (!fs.existsSync(STATS_FILE)) {
+    fs.writeFileSync(STATS_FILE, JSON.stringify({
+      totalUsers: 0,
+      activeUsers: [],
+      arcanaRequests: {},
+      commandUsage: {}
+    }, null, 2));
+  }
+}
+
+// Обновление статистики
+function updateStats(type, data) {
+  initStats();
+  const stats = JSON.parse(fs.readFileSync(STATS_FILE));
+
+  switch(type) {
+    case 'new_user':
+      stats.totalUsers += 1;
+      stats.activeUsers.push({
+        id: data.chatId,
+        username: data.username,
+        firstInteraction: new Date().toISOString()
+      });
+      break;
+
+    case 'arcana':
+      stats.arcanaRequests[data.arcanumNumber] = (stats.arcanaRequests[data.arcanumNumber] || 0) + 1;
+      break;
+
+    case 'command':
+      stats.commandUsage[data.command] = (stats.commandUsage[data.command] || 0) + 1;
+      break;
+  }
+
+  fs.writeFileSync(STATS_FILE, JSON.stringify(stats, null, 2));
+}
 
 // Состояния пользователя
 const UserState = {
@@ -57,104 +97,33 @@ if (isRailway) {
   });
 }
 
-// Инициализация PostgreSQL
-const pool = new Pool({
-    connectionString: process.env.DATABASE_URL.replace(
-        'postgres.railway.internal',
-        'monorail.proxy.rlwy.net' // Заменяем на реальный хост
-    ),
-    ssl: { rejectUnauthorized: false }
-});
-
-// Создание таблиц при старте
-(async () => {
-    try {
-        await pool.query(`
-            CREATE TABLE IF NOT EXISTS users (
-                chat_id BIGINT PRIMARY KEY,
-                username TEXT,
-                first_name TEXT,
-                last_name TEXT,
-                gender TEXT,
-                name TEXT,
-                birth_date TEXT,
-                start_count INTEGER DEFAULT 0,
-                last_start TIMESTAMP,
-                arcs INTEGER[]
-            );
-
-            CREATE TABLE IF NOT EXISTS arcs_stats (
-                arc_number INTEGER PRIMARY KEY,
-                request_count INTEGER DEFAULT 0,
-                last_request TIMESTAMP
-            );
-        `);
-        console.log('База данных готова');
-    } catch (err) {
-        console.error('Ошибка инициализации БД:', err);
-    }
-})();
-
 // Хранилища данных
 const userStates = new Map();
 const userData = new Map();
 
-// Функции для работы с БД
-async function updateUserStats(chatId, userInfo) {
-    try {
-        await pool.query(`
-            INSERT INTO users (chat_id, username, first_name, last_name, start_count, last_start)
-            VALUES ($1, $2, $3, $4, 1, NOW())
-            ON CONFLICT (chat_id) DO UPDATE SET
-                start_count = users.start_count + 1,
-                last_start = NOW(),
-                username = EXCLUDED.username,
-                first_name = EXCLUDED.first_name,
-                last_name = EXCLUDED.last_name
-        `, [
-            chatId,
-            userInfo.username || 'unknown',
-            userInfo.first_name || '',
-            userInfo.last_name || ''
-        ]);
-    } catch (err) {
-        console.error('Ошибка обновления статистики пользователя:', err);
-    }
-}
-
-async function updateArcStats(arcanumNumber) {
-    try {
-        await pool.query(`
-            INSERT INTO arcs_stats (arc_number, request_count, last_request)
-            VALUES ($1, 1, NOW())
-            ON CONFLICT (arc_number) DO UPDATE SET
-                request_count = arcs_stats.request_count + 1,
-                last_request = NOW()
-        `, [arcanumNumber]);
-    } catch (err) {
-        console.error('Ошибка обновления статистики аркана:', err);
-    }
-}
-
 // Обработчики сообщений
 bot.on('message', async (msg) => {
-    const chatId = msg.chat.id;
-    const text = msg.text;
+  const chatId = msg.chat.id;
+  const text = msg.text;
 
-    if (text === '/start') {
-        await updateUserStats(chatId, msg.from);
-        handleStart(chatId);
+  if (text === '/start') {
+    updateStats('new_user', {
+      chatId,
+      username: msg.from.username || 'unknown'
+    });
+    updateStats('command', { command: '/start' });
+    handleStart(chatId);
+  } else {
+    const state = userStates.get(chatId) || UserState.START;
+
+    if (state === UserState.WAITING_FOR_NAME) {
+      handleNameInput(chatId, text);
+    } else if (state === UserState.WAITING_FOR_BIRTHDATE) {
+      handleBirthdateInput(chatId, text);
     } else {
-        const state = userStates.get(chatId) || UserState.START;
-
-        if (state === UserState.WAITING_FOR_NAME) {
-            handleNameInput(chatId, text);
-        } else if (state === UserState.WAITING_FOR_BIRTHDATE) {
-            handleBirthdateInput(chatId, text);
-        } else {
-            bot.sendMessage(chatId, 'Я не понимаю. Напиши /start, чтобы начать.');
-        }
+      bot.sendMessage(chatId, 'Я не понимаю. Напиши /start, чтобы начать.');
     }
+  }
 });
 
 bot.on('callback_query', (query) => {
@@ -374,79 +343,41 @@ async function sendArcanumDocument(chatId, birthDate, callback) {
         const pdfPath = findArcanumPdf(arcanumNumber, gender);
 
         // Обновляем статистику
-                await pool.query(`
-                    UPDATE users
-                    SET arcs = ARRAY_APPEND(COALESCE(arcs, '{}'::INTEGER[]), $1),
-                        gender = $2,
-                        name = $3,
-                        birth_date = $4
-                    WHERE chat_id = $5
-                `, [
-                    arcanumNumber,
-                    gender,
-                    getUserData(chatId, 'name'),
-                    birthDate,
-                    chatId
-                ]);
+            updateStats('arcana', { arcanumNumber });
 
-        await updateArcStats(arcanumNumber);
-
-        if (fs.existsSync(pdfPath)) {
-            bot.sendDocument(chatId, pdfPath, {
+            if (fs.existsSync(pdfPath)) {
+              await bot.sendDocument(chatId, pdfPath, {
                 caption: `Ваш аркан дня рождения: ${arcanumNumber}`
-            }).then(() => {
-                callback(); // Вызываем колбэк после успешной отправки
-            });
-        } else {
-            bot.sendMessage(chatId, 'Извините, файл с описанием аркана не найден.');
-            callback(); // Все равно вызываем колбэк
+              });
+            } else {
+              await bot.sendMessage(chatId, 'Извините, файл с описанием аркана не найден.');
+            }
+            callback();
+          } catch (error) {
+            console.error(error);
+            await bot.sendMessage(chatId, 'Произошла ошибка при обработке вашей даты.');
+            callback();
+          }
         }
-    } catch (error) {
-        console.error(error);
-        bot.sendMessage(chatId, 'Произошла ошибка при обработке вашей даты.');
-        callback(); // Все равно вызываем колбэк
-    }
-}
-
-// Новая функция для получения статистики
-async function getBotStats() {
-    try {
-        const res = await pool.query(`
-            SELECT
-                (SELECT COUNT(*) FROM users) as total_users,
-                (SELECT SUM(start_count) FROM users) as total_starts,
-                (SELECT COUNT(*) FROM arcs_stats) as unique_arcs,
-                (SELECT SUM(request_count) FROM arcs_stats) as total_arc_requests
-        `);
-        return res.rows[0];
-    } catch (err) {
-        console.error('Ошибка получения статистики:', err);
-        return null;
-    }
-}
 
 // Команда для администратора
-bot.onText(/\/stats/, async (msg) => {
-    if (msg.chat.id.toString() !== process.env.ADMIN_ID) {
-        return bot.sendMessage(msg.chat.id, 'Эта команда доступна только администратору');
-    }
+bot.onText(/\/stats/, (msg) => {
+  if (msg.chat.id.toString() !== ADMIN_ID) {
+    return bot.sendMessage(msg.chat.id, 'Эта команда доступна только администратору');
+  }
 
-    try {
-        const stats = await getBotStats();
-        if (!stats) {
-            return bot.sendMessage(msg.chat.id, 'Не удалось получить статистику');
-        }
+  try {
+    const stats = JSON.parse(fs.readFileSync(STATS_FILE));
+    const message = `📊 Статистика бота:
+👥 Всего пользователей: ${stats.totalUsers}
+🔮 Запросов арканов: ${Object.values(stats.arcanaRequests).reduce((a, b) => a + b, 0)}
+📊 Популярные команды: ${JSON.stringify(stats.commandUsage)}`;
 
-        const message = `📊 Статистика бота:
-👥 Всего пользователей: ${stats.total_users}
-🚀 Всего запусков: ${stats.total_starts}
-🔮 Уникальных арканов: ${stats.unique_arcs}
-📨 Запросов арканов: ${stats.total_arc_requests}`;
-
-        bot.sendMessage(msg.chat.id, message);
-    } catch (err) {
-        console.error('Ошибка обработки команды /stats:', err);
-    }
+    bot.sendMessage(msg.chat.id, message);
+  } catch (err) {
+    console.error('Ошибка получения статистики:', err);
+    bot.sendMessage(msg.chat.id, 'Не удалось получить статистику');
+  }
 });
 
 function calculateArcanumNumber(day) {
