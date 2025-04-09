@@ -1,5 +1,5 @@
 {
-  "totalUsers": 22,
+  "totalUsers": 23,
   "activeUsers": [
     {
       "id": 199775458,
@@ -110,6 +110,11 @@
       "id": 199775458,
       "username": "unknown",
       "firstInteraction": "2025-04-07T23:36:26.344Z"
+    },
+    {
+      "id": 199775458,
+      "username": "unknown",
+      "firstInteraction": "2025-04-07T23:51:44.693Z"
     }
   ],
   "arcanaRequests": {
@@ -117,6 +122,6 @@
     "12": 1
   },
   "commandUsage": {
-    "/start": 22
+    "/start": 23
   }
 }
