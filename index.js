@@ -93,6 +93,7 @@ app.post('/webhook', (req, res) => {
 // Установка webhook (только для Railway)
 if (process.env.RAILWAY_ENVIRONMENT === 'production') {
   const domain = process.env.RAILWAY_STATIC_URL;
+
   if (!domain) {
     console.error('❌ RAILWAY_STATIC_URL не настроен!');
     process.exit(1);
@@ -101,13 +102,7 @@ if (process.env.RAILWAY_ENVIRONMENT === 'production') {
   const webhookUrl = `${domain}/webhook`;
 
   bot.setWebHook(webhookUrl)
-    .then(() => {
-      console.log(`✅ Webhook установлен на: ${webhookUrl}`);
-      // Проверка вручную (для отладки)
-      fetch(`https://api.telegram.org/bot${token}/getWebhookInfo`)
-        .then(res => res.json())
-        .then(data => console.log('Статус webhook:', data));
-    })
+    .then(() => console.log(`✅ Webhook установлен на ${webhookUrl}`))
     .catch(err => console.error('❌ Ошибка webhook:', err));
 }
 
