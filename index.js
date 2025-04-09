@@ -398,7 +398,8 @@ async function sendArcanumDocument(chatId, birthDate, callback) {
 
             if (fs.existsSync(pdfPath)) {
               await bot.sendDocument(chatId, pdfPath, {
-                caption: `Ваш аркан дня рождения: ${arcanumNumber}`
+                caption: `Ваш аркан дня рождения: ${arcanumNumber}`,
+                contentType: 'application/pdf' // явно указываем тип для PDF
               });
             } else {
               await bot.sendMessage(chatId, 'Извините, файл с описанием аркана не найден.');
