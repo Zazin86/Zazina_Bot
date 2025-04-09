@@ -79,40 +79,41 @@ const UserState = {
     WAITING_FOR_MORE: 'WAITING_FOR_MORE'
 };
 
-// Настройка Express и Webhook
+// Настройка Express
 const app = express();
 const PORT = process.env.PORT || 3000;
-
 app.use(express.json());
 
-// Обработка webhook
+// Обработчик webhook
 app.post('/webhook', (req, res) => {
   bot.processUpdate(req.body);
   res.sendStatus(200);
 });
 
-// Установка webhook при запуске в Railway
-if (isRailway) {
+// Установка webhook (только для Railway)
+if (process.env.RAILWAY_ENVIRONMENT === 'production') {
   const domain = process.env.RAILWAY_STATIC_URL;
-
   if (!domain) {
-    console.error('Railway domain not configured! Check your environment variables');
+    console.error('❌ RAILWAY_STATIC_URL не настроен!');
     process.exit(1);
   }
 
   const webhookUrl = `${domain}/webhook`;
 
   bot.setWebHook(webhookUrl)
-    .then(() => console.log(`✅ Webhook установлен на ${webhookUrl}`))
-    .catch(err => {
-      console.error('❌ Ошибка установки webhook:', err.message);
-      process.exit(1);
-    });
+    .then(() => {
+      console.log(`✅ Webhook установлен на: ${webhookUrl}`);
+      // Проверка вручную (для отладки)
+      fetch(`https://api.telegram.org/bot${token}/getWebhookInfo`)
+        .then(res => res.json())
+        .then(data => console.log('Статус webhook:', data));
+    })
+    .catch(err => console.error('❌ Ошибка webhook:', err));
 }
 
 // Запуск сервера
 app.listen(PORT, () => {
-  console.log(`🌐 Сервер запущен на порту ${PORT}`);
+  console.log(`🚀 Сервер запущен на порту ${PORT}`);
 });
 
 // Хранилища данных
