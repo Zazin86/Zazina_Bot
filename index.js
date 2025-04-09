@@ -19,10 +19,10 @@ const isRailway = process.env.RAILWAY_ENVIRONMENT === 'production';
 
 // 4. Инициализируем бота
 const bot = new TelegramBot(token, {
-  polling: !isRailway // Теперь isRailway уже определен
+  polling: false // Всегда отключаем polling для Railway
 });
 
-console.log(`Бот запущен в режиме ${isRailway ? 'production (Railway)' : 'разработки (polling)'}`);
+console.log(`🚀 Бот запущен в режиме ${isRailway ? 'production (Railway)' : 'разработки'}`);
 
 // Константы
 const PDF_BASE_PATH = './pdfs/';
@@ -79,44 +79,41 @@ const UserState = {
     WAITING_FOR_MORE: 'WAITING_FOR_MORE'
 };
 
-// Настройка webhook для Railway
+// Настройка Express и Webhook
+const app = express();
+const PORT = process.env.PORT || 3000;
+
+app.use(express.json());
+
+// Обработка webhook
+app.post('/webhook', (req, res) => {
+  bot.processUpdate(req.body);
+  res.sendStatus(200);
+});
+
+// Установка webhook при запуске в Railway
 if (isRailway) {
-  const app = express();
-  const PORT = process.env.PORT || 3000;
   const domain = process.env.RAILWAY_STATIC_URL;
 
-  // Проверка наличия домена
   if (!domain) {
     console.error('Railway domain not configured! Check your environment variables');
     process.exit(1);
   }
 
-  app.use(express.json());
+  const webhookUrl = `${domain}/webhook`;
 
-  app.post(`/webhook`, (req, res) => {
-    bot.processUpdate(req.body);
-    res.sendStatus(200);
-  });
-
-  // Установка webhook
-  bot.setWebHook(`https://${domain}/webhook`)
-    .then(() => {
-      console.log(`Webhook установлен на ${domain}`);
-
-      app.listen(PORT, () => {
-        console.log(`Сервер запущен на порту ${PORT}`);
-      });
-    })
+  bot.setWebHook(webhookUrl)
+    .then(() => console.log(`✅ Webhook установлен на ${webhookUrl}`))
     .catch(err => {
-      console.error('Ошибка установки webhook:', err.message);
+      console.error('❌ Ошибка установки webhook:', err.message);
       process.exit(1);
     });
-} else {
-  console.log('Бот запущен в режиме polling');
-  bot.on('polling_error', (error) => {
-    console.error('Polling error:', error);
-  });
 }
+
+// Запуск сервера
+app.listen(PORT, () => {
+  console.log(`🌐 Сервер запущен на порту ${PORT}`);
+});
 
 // Хранилища данных
 const userStates = new Map();
@@ -470,16 +467,23 @@ function isValidName(name) {
 }
 
 // Запуск бота
-if (!process.env.RAILWAY_ENV) {
-    bot.on('polling_error', (error) => {
-        console.error('Polling error:', error);
-    });
-    console.log('Бот запущен в режиме polling');
+if (isRailway) {
+  console.log('🤖 Бот работает через Webhook на Railway');
 } else {
-    console.log('Бот готов к работе через webhook');
+  // Для локальной разработки можно временно включить polling
+  console.log('🔧 Локальный режим разработки');
+  bot.startPolling({
+    restart: true,
+    polling: {
+      interval: 300,
+      autoStart: true,
+      params: {
+        timeout: 10
+      }
+    }
+  });
+
+  bot.on('polling_error', (error) => {
+    console.error('Polling error:', error);
+  });
 }
-console.log(
-  isRailway
-    ? 'Бот запущен в режиме production (Railway)'
-    : 'Бот запущен в режиме разработки (polling)'
-);
