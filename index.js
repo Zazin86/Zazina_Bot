@@ -196,9 +196,9 @@ bot.on('callback_query', (query) => {
     }
     // Обработка кликов по ссылкам
         if (data === 'link_zazina') {
-          updateStats('link_click', { linkName: 'ZAZINA_TATYANA' });
+          updateStats('link_click', { linkName: 'https://t.me/ZAZINA\\_TATYANA' });
         } else if (data === 'link_channel') {
-          updateStats('link_click', { linkName: 'Zazina_TD' });
+          updateStats('link_click', { linkName: 'https://t.me/Zazina\\_TD' });
         }
   } catch (error) {
     console.error('Ошибка обработки callback:', error);
