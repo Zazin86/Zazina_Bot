@@ -37,6 +37,11 @@ function initStats() {
       totalUsers: 0,
       activeUsers: [],
       arcanaRequests: {},
+      arcanaSent: {},
+      linkClicks: {
+        ZAZINA_TATYANA: 0,
+        Zazina_TD: 0
+      },
       commandUsage: {}
     }, null, 2));
   }
@@ -59,6 +64,24 @@ function updateStats(type, data) {
 
     case 'arcana':
       stats.arcanaRequests[data.arcanumNumber] = (stats.arcanaRequests[data.arcanumNumber] || 0) + 1;
+      break;
+
+    case 'arcana_sent':
+      if (!stats.arcanaSent[data.arcanumNumber]) {
+        stats.arcanaSent[data.arcanumNumber] = {
+          count: 0,
+          users: []
+        };
+      }
+      stats.arcanaSent[data.arcanumNumber].count += 1;
+      stats.arcanaSent[data.arcanumNumber].users.push({
+        id: data.chatId,
+        date: new Date().toISOString()
+      });
+      break;
+
+    case 'link_click':
+      stats.linkClicks[data.linkName] = (stats.linkClicks[data.linkName] || 0) + 1;
       break;
 
     case 'command':
@@ -171,6 +194,12 @@ bot.on('callback_query', (query) => {
       case UserState.WAITING_FOR_MORE:
         return handleMoreInfoRequest(chatId, data);
     }
+    // Обработка кликов по ссылкам
+        if (data === 'link_zazina') {
+          updateStats('link_click', { linkName: 'ZAZINA_TATYANA' });
+        } else if (data === 'link_channel') {
+          updateStats('link_click', { linkName: 'Zazina_TD' });
+        }
   } catch (error) {
     console.error('Ошибка обработки callback:', error);
     bot.sendMessage(chatId, 'Произошла ошибка. Попробуйте ещё раз.');
@@ -389,6 +418,7 @@ async function sendArcanumDocument(chatId, birthDate, callback) {
 
         // Обновляем статистику
             updateStats('arcana', { arcanumNumber });
+            updateStats('arcana_sent', { arcanumNumber, chatId });
 
             if (fs.existsSync(pdfPath)) {
               await bot.sendDocument(chatId, pdfPath, {
@@ -415,10 +445,19 @@ bot.onText(/\/stats/, (msg) => {
 
   try {
     const stats = JSON.parse(fs.readFileSync(STATS_FILE));
-    const message = `📊 Статистика бота:
+    let message = `📊 Статистика бота:
 👥 Всего пользователей: ${stats.totalUsers}
 🔮 Запросов арканов: ${Object.values(stats.arcanaRequests).reduce((a, b) => a + b, 0)}
+🔗 Переходы по ссылкам:
+   • ZAZINA_TATYANA: ${stats.linkClicks.ZAZINA_TATYANA}
+   • Zazina_TD: ${stats.linkClicks.Zazina_TD}
 📊 Популярные команды: ${JSON.stringify(stats.commandUsage)}`;
+
+    // Добавляем детализацию по арканам
+    message += `\n\n📦 Отправлено арканов:`;
+    Object.entries(stats.arcanaSent || {}).forEach(([arcanum, data]) => {
+      message += `\n• Аркан ${arcanum}: ${data.count} раз (${data.users.length} пользователей)`;
+    });
 
     bot.sendMessage(msg.chat.id, message);
   } catch (err) {
