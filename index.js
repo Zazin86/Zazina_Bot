@@ -33,17 +33,16 @@ const STATS_FILE = path.join(process.cwd(), 'bot_stats.json');
 // Инициализация файла статистики
 function initStats() {
   if (!fs.existsSync(STATS_FILE)) {
-    fs.writeFileSync(STATS_FILE, JSON.stringify({
+    const defaultData = {
       totalUsers: 0,
       activeUsers: [],
       arcanaRequests: {},
       arcanaSent: {},
-      linkClicks: {
-        ZAZINA_TATYANA: 0,
-        Zazina_TD: 0
-      },
+      linkClicks: { ZAZINA_TATYANA: 0, Zazina_TD: 0 },
       commandUsage: {}
-    }, null, 2));
+    };
+    fs.writeFileSync(STATS_FILE, JSON.stringify(defaultData, null, 2)); // Добавьте null, 2 для читаемости
+    console.log('Файл статистики инициализирован'); // Отладочное сообщение
   }
 }
 
@@ -90,7 +89,11 @@ function updateStats(type, data) {
   }
 
   fs.writeFileSync(STATS_FILE, JSON.stringify(stats, null, 2));
-}
+      console.log('Статистика обновлена'); // Подтверждение записи
+    } catch (err) {
+      console.error('Ошибка в updateStats:', err);
+    }
+  }
 
 // Состояния пользователя
 const UserState = {
