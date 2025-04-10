@@ -3,6 +3,7 @@ import dotenv from 'dotenv';
 import fs from 'fs';
 import path from 'path';
 import express from 'express';
+import mime from 'mime-types';
 
 // 1. Загружаем конфигурацию
 dotenv.config();
@@ -392,8 +393,8 @@ async function sendArcanumDocument(chatId, birthDate, callback) {
             if (fs.existsSync(pdfPath)) {
               await bot.sendDocument(chatId, pdfPath, {
                 caption: `Ваш аркан дня рождения: ${arcanumNumber}`,
-                contentType: 'application/pdf', // Должно быть точно так
-                filename: `arcanum_${arcanumNumber}.pdf` // Добавьте это поле
+                contentType: mime.lookup(pdfPath) || 'application/pdf', // Автоопределение типа
+                filename: `arcanum_${arcanumNumber}.pdf`
               });
             } else {
               await bot.sendMessage(chatId, 'Извините, файл с описанием аркана не найден.');
