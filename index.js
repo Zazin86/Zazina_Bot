@@ -29,6 +29,10 @@ console.log(`🚀 Бот запущен в режиме ${isRailway ? 'productio
 const PDF_BASE_PATH = './pdfs/';
 const ADMIN_ID = process.env.ADMIN_ID || '199775458';
 const STATS_FILE = path.join(process.cwd(), 'bot_stats.json');
+const dir = path.dirname(STATS_FILE);
+if (!fs.existsSync(dir)) {
+  fs.mkdirSync(dir, { recursive: true });
+}
 
 // Инициализация файла статистики
 function initStats() {
@@ -48,52 +52,49 @@ function initStats() {
 
 // Обновление статистики
 function updateStats(type, data) {
-  initStats();
-  const stats = JSON.parse(fs.readFileSync(STATS_FILE));
+  try {
+    initStats();
+    const stats = JSON.parse(fs.readFileSync(STATS_FILE));
 
-  switch(type) {
-    case 'new_user':
-      stats.totalUsers += 1;
-      stats.activeUsers.push({
-        id: data.chatId,
-        username: data.username,
-        firstInteraction: new Date().toISOString()
-      });
-      break;
-
-    case 'arcana':
-      stats.arcanaRequests[data.arcanumNumber] = (stats.arcanaRequests[data.arcanumNumber] || 0) + 1;
-      break;
-
-    case 'arcana_sent':
-      if (!stats.arcanaSent[data.arcanumNumber]) {
-        stats.arcanaSent[data.arcanumNumber] = {
-          count: 0,
-          users: []
-        };
-      }
-      stats.arcanaSent[data.arcanumNumber].count += 1;
-      stats.arcanaSent[data.arcanumNumber].users.push({
-        id: data.chatId,
-        date: new Date().toISOString()
-      });
-      break;
-
-    case 'link_click':
-      stats.linkClicks[data.linkName] = (stats.linkClicks[data.linkName] || 0) + 1;
-      break;
-
-    case 'command':
-      stats.commandUsage[data.command] = (stats.commandUsage[data.command] || 0) + 1;
-      break;
-  }
-
-  fs.writeFileSync(STATS_FILE, JSON.stringify(stats, null, 2));
-      console.log('Статистика обновлена'); // Подтверждение записи
-    } catch (err) {
-      console.error('Ошибка в updateStats:', err);
+    switch(type) {
+      case 'new_user':
+        stats.totalUsers += 1;
+        stats.activeUsers.push({
+          id: data.chatId,
+          username: data.username,
+          firstInteraction: new Date().toISOString()
+        });
+        break;
+      case 'arcana':
+        stats.arcanaRequests[data.arcanumNumber] = (stats.arcanaRequests[data.arcanumNumber] || 0) + 1;
+        break;
+      case 'arcana_sent':
+        if (!stats.arcanaSent[data.arcanumNumber]) {
+          stats.arcanaSent[data.arcanumNumber] = {
+            count: 0,
+            users: []
+          };
+        }
+        stats.arcanaSent[data.arcanumNumber].count += 1;
+        stats.arcanaSent[data.arcanumNumber].users.push({
+          id: data.chatId,
+          date: new Date().toISOString()
+        });
+        break;
+      case 'link_click':
+        stats.linkClicks[data.linkName] = (stats.linkClicks[data.linkName] || 0) + 1;
+        break;
+      case 'command':
+        stats.commandUsage[data.command] = (stats.commandUsage[data.command] || 0) + 1;
+        break;
     }
+
+    fs.writeFileSync(STATS_FILE, JSON.stringify(stats, null, 2));
+    console.log('Статистика обновлена');
+  } catch (err) {
+    console.error('Ошибка в updateStats:', err);
   }
+}
 
 // Состояния пользователя
 const UserState = {
@@ -413,32 +414,31 @@ async function updateUserStats(chatId, user) {
 }
 
 async function sendArcanumDocument(chatId, birthDate, callback) {
-    try {
-        const day = parseInt(birthDate.split('.')[0]);
-        const arcanumNumber = calculateArcanumNumber(day);
-        const gender = getUserData(chatId, 'gender');
-        const pdfPath = findArcanumPdf(arcanumNumber, gender);
+  try {
+    const day = parseInt(birthDate.split('.')[0]);
+    const arcanumNumber = calculateArcanumNumber(day);
+    const gender = getUserData(chatId, 'gender');
+    const pdfPath = findArcanumPdf(arcanumNumber, gender);
 
-        // Обновляем статистику
-            updateStats('arcana', { arcanumNumber });
-            updateStats('arcana_sent', { arcanumNumber, chatId });
+    updateStats('arcana', { arcanumNumber });
+    updateStats('arcana_sent', { arcanumNumber, chatId });
 
-            if (fs.existsSync(pdfPath)) {
-              await bot.sendDocument(chatId, pdfPath, {
-                caption: `Ваш аркан дня рождения: ${arcanumNumber}`,
-                contentType: mime.lookup(pdfPath) || 'application/pdf', // Автоопределение типа
-                filename: `arcanum_${arcanumNumber}.pdf`
-              });
-            } else {
-              await bot.sendMessage(chatId, 'Извините, файл с описанием аркана не найден.');
-            }
-            callback();
-          } catch (error) {
-            console.error(error);
-            await bot.sendMessage(chatId, 'Произошла ошибка при обработке вашей даты.');
-            callback();
-          }
-        }
+    if (fs.existsSync(pdfPath)) {
+      await bot.sendDocument(chatId, pdfPath, {
+        caption: `Ваш аркан дня рождения: ${arcanumNumber}`,
+        contentType: mime.lookup(pdfPath) || 'application/pdf',
+        filename: `arcanum_${arcanumNumber}.pdf`
+      });
+    } else {
+      await bot.sendMessage(chatId, 'Извините, файл с описанием аркана не найден.');
+    }
+    callback();
+  } catch (error) {
+    console.error(error);
+    await bot.sendMessage(chatId, 'Произошла ошибка при обработке вашей даты.');
+    callback();
+  }
+}
 
 // Команда для администратора
 bot.onText(/\/stats/, (msg) => {
