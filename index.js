@@ -11,6 +11,8 @@ import ipRangeCheck from 'ip-range-check';
 // 1. Инициализация Express
 const app = express();
 const PORT = process.env.PORT || 3000;
+app.set('trust proxy', true);
+app.use(express.json());
 
 // 2. Загрузка конфигурации
 dotenv.config();
@@ -37,7 +39,11 @@ app.use(express.json());
 const limiter = rateLimit({
   windowMs: 60 * 1000,
   max: 100,
-  message: '⚠️ Слишком много запросов. Пожалуйста, попробуйте позже.'
+  message: '⚠️ Слишком много запросов. Пожалуйста, попробуйте позже.',
+  validate: {
+      trustProxy: true,
+      xForwardedForHeader: true
+    }
 });
 
 const isRailway = process.env.RAILWAY_ENVIRONMENT === 'production';
