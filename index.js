@@ -11,7 +11,7 @@ import ipRangeCheck from 'ip-range-check';
 // 1. Инициализация Express
 const app = express();
 const PORT = process.env.PORT || 3000;
-app.set('trust proxy', true);
+app.set('trust proxy', 1);
 app.use(express.json());
 
 // 2. Загрузка конфигурации
@@ -39,11 +39,14 @@ app.use(express.json());
 const limiter = rateLimit({
   windowMs: 60 * 1000,
   max: 100,
-  message: '⚠️ Слишком много запросов. Пожалуйста, попробуйте позже.',
+  message: '⚠️ Слишком много запросов',
   validate: {
-      trustProxy: true,
-      xForwardedForHeader: true
-    }
+    trustProxy: true,
+    xForwardedForHeader: true
+  },
+  keyGenerator: (req) => {
+    return req.headers['x-real-ip'] || req.ip;
+  }
 });
 
 const isRailway = process.env.RAILWAY_ENVIRONMENT === 'production';
@@ -76,21 +79,30 @@ function ensureDirectoriesExist() {
 ensureDirectoriesExist();
 
 // 7. Шифрование статистики
+// index.js
 function encryptData(data) {
-  const cipher = crypto.createCipheriv('aes-256-cbc',
-    process.env.SECRET_KEY,
-    process.env.IV
+  const cipher = crypto.createCipheriv(
+    'aes-256-cbc',
+    Buffer.from(process.env.SECRET_KEY, 'hex'), // Декодируем из hex
+    Buffer.from(process.env.IV, 'hex')
   );
-  return cipher.update(JSON.stringify(data), 'utf8', 'hex') + cipher.final('hex');
+  return Buffer.concat([
+    cipher.update(JSON.stringify(data),
+    cipher.final()
+  ]).toString('hex');
 }
 
 function decryptData(encrypted) {
-  const decipher = crypto.createDecipheriv('aes-256-cbc',
-    process.env.SECRET_KEY,
-    process.env.IV
+  const decipher = crypto.createDecipheriv(
+    'aes-256-cbc',
+    Buffer.from(process.env.SECRET_KEY, 'hex'),
+    Buffer.from(process.env.IV, 'hex')
   );
   return JSON.parse(
-    decipher.update(encrypted, 'hex', 'utf8') + decipher.final('utf8')
+    Buffer.concat([
+      decipher.update(Buffer.from(encrypted, 'hex')),
+      decipher.final()
+    ]).toString()
   );
 }
 
