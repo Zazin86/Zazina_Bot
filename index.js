@@ -36,10 +36,9 @@ for (const envVar of requiredEnvVars) {
 app.use(express.json());
 const limiter = rateLimit({
   windowMs: 60 * 1000,
-  max: 10,
+  max: 100,
   message: '⚠️ Слишком много запросов. Пожалуйста, попробуйте позже.'
 });
-app.use('/webhook', limiter);
 
 const isRailway = process.env.RAILWAY_ENVIRONMENT === 'production';
 
@@ -120,7 +119,7 @@ function isValidDate(dateStr) {
 app.post('/webhook', (req, res) => {
   try {
     // Проверка IP Telegram
-    const clientIp = req.ip.replace('::ffff:', '');
+    const clientIp = req.headers['x-forwarded-for'] || req.ip.replace('::ffff:', '');
     if (!ipRangeCheck(clientIp, TELEGRAM_IPS)) {
       logSecurityEvent('IP_BLOCKED', null, `IP: ${clientIp}`);
       return res.status(403).send('Forbidden');
