@@ -87,7 +87,7 @@ function encryptData(data) {
     Buffer.from(process.env.IV, 'hex')
   );
   return Buffer.concat([
-    cipher.update(JSON.stringify(data),
+    cipher.update(JSON.stringify(data)),
     cipher.final()
   ]).toString('hex');
 }
