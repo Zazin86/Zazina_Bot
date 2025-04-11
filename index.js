@@ -79,7 +79,6 @@ function ensureDirectoriesExist() {
 ensureDirectoriesExist();
 
 // 7. Шифрование статистики
-// index.js
 function encryptData(data) {
   const cipher = crypto.createCipheriv(
     'aes-256-cbc',
@@ -159,18 +158,29 @@ app.post('/webhook', (req, res) => {
 
 // 11. Инициализация статистики
 function initStats() {
-  if (!fs.existsSync(STATS_FILE)) {
-    const defaultData = {
-      totalUsers: 0,
-      activeUsers: [],
-      arcanaRequests: {},
-      arcanaSent: {},
-      linkClicks: { ZAZINA_TATYANA: 0, Zazina_TD: 0 },
-      commandUsage: {}
-    };
+  try {
+    if (!fs.existsSync(STATS_FILE)) {
+      console.log('🔄 Создаю новый файл статистики...');
 
-    fs.writeFileSync(STATS_FILE, encryptData(defaultData));
-    logSecurityEvent('STATS_INIT');
+      const defaultData = {
+        totalUsers: 0,
+        activeUsers: [],
+        arcanaRequests: {},
+        arcanaSent: {},
+        linkClicks: {
+          ZAZINA_TATYANA: 0,
+          Zazina_TD: 0
+        },
+        commandUsage: {}
+      };
+
+      fs.writeFileSync(STATS_FILE, encryptData(defaultData));
+      logSecurityEvent('STATS_INIT');
+      console.log('✅ Файл статистики создан');
+    }
+  } catch (err) {
+    console.error('❌ Ошибка создания файла:', err);
+    process.exit(1);
   }
 }
 
