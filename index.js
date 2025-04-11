@@ -248,12 +248,6 @@ if (process.env.RAILWAY_ENVIRONMENT === 'production') {
     });
 }
 
-// Запуск сервера
-app.listen(PORT, () => {
-  console.log(`🚀 Сервер запущен на порту ${PORT}`);
-  logSecurityEvent('SERVER_START', null, `Port: ${PORT}`);
-});
-
 // Хранилища данных
 const userStates = new Map();
 const userData = new Map();
@@ -652,24 +646,27 @@ function isValidName(name) {
     return /^[A-Za-zА-Яа-яёЁ]{2,50}$/.test(name);
 }
 
-// Запуск бота
-if (isRailway) {
-  console.log('🤖 Бот работает через Webhook на Railway');
-} else {
-  // Для локальной разработки можно временно включить polling
-  console.log('🔧 Локальный режим разработки');
-  bot.startPolling({
-    restart: true,
-    polling: {
-      interval: 300,
-      autoStart: true,
-      params: {
-        timeout: 10
-      }
+// В конце файла, после всей логики:
+
+// Запуск сервера и бота
+app.listen(PORT, async () => {
+  console.log(`🚀 Сервер запущен на порту ${PORT}`);
+  logSecurityEvent('SERVER_START', null, `Port: ${PORT}`);
+
+  try {
+    if (isRailway) {
+      console.log('🤖 Режим Webhook');
+    } else {
+      console.log('🔧 Локальный режим разработки');
+      await bot.deleteWebHook();
+      bot.startPolling();
     }
-  });
+  } catch (error) {
+    console.error('❌ Ошибка инициализации бота:', error);
+    process.exit(1);
+  }
+});
 
   bot.on('polling_error', (error) => {
     console.error('Polling error:', error);
   });
-}
