@@ -517,7 +517,7 @@ public class Tutorial extends TelegramLongPollingBot {
 
     @Override
     public String getBotUsername() {
-        return "zazin";
+        return "ZazinBot";
     }
 
     @Override

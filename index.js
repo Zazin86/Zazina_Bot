@@ -91,18 +91,25 @@ function encryptData(data) {
   ]).toString('hex');
 }
 
+// Модифицируем функцию decryptData для лучшего логирования
 function decryptData(encrypted) {
-  const decipher = crypto.createDecipheriv(
-    'aes-256-cbc',
-    Buffer.from(process.env.SECRET_KEY, 'hex'),
-    Buffer.from(process.env.IV, 'hex')
-  );
-  return JSON.parse(
-    Buffer.concat([
+  try {
+    const decipher = crypto.createDecipheriv(
+      'aes-256-cbc',
+      Buffer.from(process.env.SECRET_KEY, 'hex'),
+      Buffer.from(process.env.IV, 'hex')
+    );
+
+    const decryptedBuffer = Buffer.concat([
       decipher.update(Buffer.from(encrypted, 'hex')),
       decipher.final()
-    ]).toString()
-  );
+    ]);
+
+    return JSON.parse(decryptedBuffer.toString());
+  } catch (err) {
+    console.error('❌ Ошибка дешифровки:', err.stack);
+    throw new Error('Неверные ключи шифрования или повреждённые данные');
+  }
 }
 
 // 8. Логирование безопасности
@@ -156,6 +163,40 @@ app.post('/webhook', (req, res) => {
   }
 });
 
+// Эндпоинт для расшифровки статистики (только для администратора)
+
+app.get('/decrypt-stats', (req, res) => {
+  try {
+    // Проверка IP администратора
+    const clientIp = req.headers['x-forwarded-for'] || req.ip.replace('::ffff:', '');
+    if (clientIp !== process.env.ADMIN_IP) {
+      logSecurityEvent('ADMIN_IP_BLOCKED', null, `IP: ${clientIp}`);
+      return res.status(403).json({ error: 'Forbidden' });
+    }
+
+    // Проверка наличия файла
+    if (!fs.existsSync(STATS_FILE)) {
+      return res.status(404).json({ error: 'Файл статистики не найден' });
+    }
+
+    // Чтение и расшифровка данных
+    const encrypted = fs.readFileSync(STATS_FILE, 'utf8');
+    const decrypted = decryptData(encrypted);
+
+    res.json({
+      status: 'success',
+      data: decrypted
+    });
+
+  } catch (err) {
+    logSecurityEvent('DECRYPT_ERROR', null, err.message);
+    res.status(500).json({
+      error: 'Ошибка расшифровки',
+      details: err.message
+    });
+  }
+});
+
 // 11. Инициализация статистики
 function initStats() {
   try {
@@ -183,6 +224,8 @@ function initStats() {
     process.exit(1);
   }
 }
+
+
 
 // 12. Обновление статистики с шифрованием
 function updateStats(type, data) {
@@ -672,8 +715,6 @@ function getUserData(chatId, key) {
 function isValidName(name) {
     return /^[A-Za-zА-Яа-яёЁ]{2,50}$/.test(name);
 }
-
-// В конце файла, после всей логики:
 
 // Запуск сервера и бота
 app.listen(PORT, async () => {
