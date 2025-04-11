@@ -9,8 +9,10 @@
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "dependencies": {
-    "dotenv": "^16.4.7",
+    "dotenv": "^16.5.0",
     "express": "^5.1.0",
+    "express-rate-limit": "^7.5.0",
+    "ip-range-check": "^0.2.0",
     "mime-types": "^3.0.1",
     "node-telegram-bot-api": "^0.66.0",
     "pg": "^8.14.1"

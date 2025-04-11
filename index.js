@@ -4,37 +4,143 @@ import fs from 'fs';
 import path from 'path';
 import express from 'express';
 import mime from 'mime-types';
+import crypto from 'crypto';
+import rateLimit from 'express-rate-limit';
+import ipRangeCheck from 'ip-range-check';
 
-// 1. Загружаем конфигурацию
+// 1. Инициализация Express
+const app = express();
+const PORT = process.env.PORT || 3000;
+
+// 2. Загрузка конфигурации
 dotenv.config();
 
-// 2. Получаем токен
-const token = process.env.TELEGRAM_BOT_TOKEN;
-if (!token) {
-  console.error('Токен бота не найден! Проверьте файл .env');
-  process.exit(1);
+// 3. Проверка переменных окружения
+const requiredEnvVars = [
+  'TELEGRAM_BOT_TOKEN',
+  'ADMIN_ID',
+  'ADMIN_PASSWORD',
+  'WEBHOOK_SECRET',
+  'SECRET_KEY',
+  'IV'
+];
+
+for (const envVar of requiredEnvVars) {
+  if (!process.env[envVar]) {
+    console.error(`❌ Ошибка: Необходимо установить переменную ${envVar} в .env`);
+    process.exit(1);
+  }
 }
 
-// 3. Определяем режим работы
+// 4. Настройка middleware
+app.use(express.json());
+const limiter = rateLimit({
+  windowMs: 60 * 1000,
+  max: 10,
+  message: '⚠️ Слишком много запросов. Пожалуйста, попробуйте позже.'
+});
+app.use('/webhook', limiter);
+
 const isRailway = process.env.RAILWAY_ENVIRONMENT === 'production';
 
-// 4. Инициализируем бота
-const bot = new TelegramBot(token, {
-  polling: false // Всегда отключаем polling для Railway
-});
+// 3. Инициализируем бота
+const token = process.env.TELEGRAM_BOT_TOKEN;
+const bot = new TelegramBot(token, { polling: false });
 
-console.log(`🚀 Бот запущен в режиме ${isRailway ? 'production (Railway)' : 'разработки'}`);
-
-// Константы
+// 4. Константы безопасности
 const PDF_BASE_PATH = './pdfs/';
-const ADMIN_ID = process.env.ADMIN_ID || '199775458';
 const STATS_FILE = path.join(process.cwd(), 'bot_stats.json');
-const dir = path.dirname(STATS_FILE);
-if (!fs.existsSync(dir)) {
-  fs.mkdirSync(dir, { recursive: true });
+const SECURITY_LOG = path.join(process.cwd(), 'security.log');
+const TELEGRAM_IPS = ['149.154.160.0/20', '91.108.4.0/22'];
+const MAX_PDF_SIZE = 5 * 1024 * 1024; // 5MB
+
+app.use(express.json());
+app.use('/webhook', limiter);
+
+// 6. Проверка директорий
+function ensureDirectoriesExist() {
+  const dirs = [PDF_BASE_PATH, path.dirname(STATS_FILE)];
+
+  for (const dir of dirs) {
+    if (!fs.existsSync(dir)) {
+      fs.mkdirSync(dir, { recursive: true });
+    }
+  }
 }
 
-// Инициализация файла статистики
+ensureDirectoriesExist();
+
+// 7. Шифрование статистики
+function encryptData(data) {
+  const cipher = crypto.createCipheriv('aes-256-cbc',
+    process.env.SECRET_KEY,
+    process.env.IV
+  );
+  return cipher.update(JSON.stringify(data), 'utf8', 'hex') + cipher.final('hex');
+}
+
+function decryptData(encrypted) {
+  const decipher = crypto.createDecipheriv('aes-256-cbc',
+    process.env.SECRET_KEY,
+    process.env.IV
+  );
+  return JSON.parse(
+    decipher.update(encrypted, 'hex', 'utf8') + decipher.final('utf8')
+  );
+}
+
+// 8. Логирование безопасности
+function logSecurityEvent(event, chatId = null, details = '') {
+  const logEntry = `[${new Date().toISOString()}] ${event} ${
+    chatId ? `| ChatID: ${chatId} ` : ''
+  }| ${details}\n`;
+
+  fs.appendFileSync(SECURITY_LOG, logEntry, 'utf8');
+}
+
+// 9. Валидация данных
+function sanitizeName(name) {
+  return name.replace(/[^\p{L}\s-]/gu, '').trim();
+}
+
+function isValidDate(dateStr) {
+  if (!/^\d{2}\.\d{2}\.\d{4}$/.test(dateStr)) return false;
+
+  const [dd, mm, yyyy] = dateStr.split('.');
+  const date = new Date(`${yyyy}-${mm}-${dd}`);
+
+  return (
+    !isNaN(date) &&
+    date.getDate() === parseInt(dd) &&
+    date.getMonth() + 1 === parseInt(mm)
+  );
+}
+
+// 10. Защищенный обработчик webhook
+app.post('/webhook', (req, res) => {
+  try {
+    // Проверка IP Telegram
+    const clientIp = req.ip.replace('::ffff:', '');
+    if (!ipRangeCheck(clientIp, TELEGRAM_IPS)) {
+      logSecurityEvent('IP_BLOCKED', null, `IP: ${clientIp}`);
+      return res.status(403).send('Forbidden');
+    }
+
+    // Проверка секретного токена
+    if (req.headers['x-telegram-bot-api-secret-token'] !== process.env.WEBHOOK_SECRET) {
+      logSecurityEvent('INVALID_WEBHOOK_TOKEN');
+      return res.status(403).send('Forbidden');
+    }
+
+    bot.processUpdate(req.body);
+    res.sendStatus(200);
+  } catch (error) {
+    logSecurityEvent('WEBHOOK_ERROR', null, error.message);
+    res.status(500).send('Internal Server Error');
+  }
+});
+
+// 11. Инициализация статистики
 function initStats() {
   if (!fs.existsSync(STATS_FILE)) {
     const defaultData = {
@@ -45,19 +151,25 @@ function initStats() {
       linkClicks: { ZAZINA_TATYANA: 0, Zazina_TD: 0 },
       commandUsage: {}
     };
-    fs.writeFileSync(STATS_FILE, JSON.stringify(defaultData, null, 2)); // Добавьте null, 2 для читаемости
-    console.log('Файл статистики инициализирован'); // Отладочное сообщение
+
+    fs.writeFileSync(STATS_FILE, encryptData(defaultData));
+    logSecurityEvent('STATS_INIT');
   }
 }
 
-// Обновление статистики
+// 12. Обновление статистики с шифрованием
 function updateStats(type, data) {
   try {
     initStats();
-    const stats = JSON.parse(fs.readFileSync(STATS_FILE));
+
+    const stats = decryptData(fs.readFileSync(STATS_FILE, 'utf8'));
 
     switch(type) {
       case 'new_user':
+        if (stats.activeUsers.some(user => user.id === data.chatId)) {
+          logSecurityEvent('DUPLICATE_USER', data.chatId);
+          return;
+        }
         stats.totalUsers += 1;
         stats.activeUsers.push({
           id: data.chatId,
@@ -65,8 +177,10 @@ function updateStats(type, data) {
           firstInteraction: new Date().toISOString()
         });
         break;
+
       case 'arcana':
-        stats.arcanaRequests[data.arcanumNumber] = (stats.arcanaRequests[data.arcanumNumber] || 0) + 1;
+        stats.arcanaRequests[data.arcanumNumber] =
+          (stats.arcanaRequests[data.arcanumNumber] || 0) + 1;
         break;
       case 'arcana_sent':
         if (!stats.arcanaSent[data.arcanumNumber]) {
@@ -89,12 +203,12 @@ function updateStats(type, data) {
         break;
     }
 
-    fs.writeFileSync(STATS_FILE, JSON.stringify(stats, null, 2));
-    console.log('Статистика обновлена');
-  } catch (err) {
-    console.error('Ошибка в updateStats:', err);
-  }
-}
+    fs.writeFileSync(STATS_FILE, encryptData(stats));
+      } catch (err) {
+        logSecurityEvent('STATS_ERROR', null, err.message);
+        console.error('Ошибка в updateStats:', err);
+      }
+    }
 
 // Состояния пользователя
 const UserState = {
@@ -106,11 +220,6 @@ const UserState = {
     CONFIRM_BIRTHDATE: 'CONFIRM_BIRTHDATE',
     WAITING_FOR_MORE: 'WAITING_FOR_MORE'
 };
-
-// Настройка Express
-const app = express();
-const PORT = process.env.PORT || 3000;
-app.use(express.json());
 
 // Обработчик webhook
 app.post('/webhook', (req, res) => {
@@ -129,14 +238,20 @@ if (process.env.RAILWAY_ENVIRONMENT === 'production') {
 
   const webhookUrl = `${domain}/webhook`;
 
-  bot.setWebHook(webhookUrl)
+  bot.setWebHook(webhookUrl, {
+    secret_token: process.env.WEBHOOK_SECRET
+  })
     .then(() => console.log(`✅ Webhook установлен на ${webhookUrl}`))
-    .catch(err => console.error('❌ Ошибка webhook:', err));
+    .catch(err => {
+      console.error('❌ Ошибка webhook:', err);
+      process.exit(1);
+    });
 }
 
 // Запуск сервера
 app.listen(PORT, () => {
   console.log(`🚀 Сервер запущен на порту ${PORT}`);
+  logSecurityEvent('SERVER_START', null, `Port: ${PORT}`);
 });
 
 // Хранилища данных
@@ -413,6 +528,7 @@ async function updateUserStats(chatId, user) {
     updateStats('command', { command: '/start' });
 }
 
+// 13. Защищенная отправка PDF
 async function sendArcanumDocument(chatId, birthDate, callback) {
   try {
     const day = parseInt(birthDate.split('.')[0]);
@@ -420,34 +536,47 @@ async function sendArcanumDocument(chatId, birthDate, callback) {
     const gender = getUserData(chatId, 'gender');
     const pdfPath = findArcanumPdf(arcanumNumber, gender);
 
+    if (!fs.existsSync(pdfPath)) {
+      throw new Error('PDF not found');
+    }
+
+    // Проверка размера файла
+    const stats = fs.statSync(pdfPath);
+    if (stats.size > MAX_PDF_SIZE) {
+      logSecurityEvent('PDF_SIZE_EXCEEDED', chatId, `Size: ${stats.size}`);
+      throw new Error('PDF file too large');
+    }
+
     updateStats('arcana', { arcanumNumber });
     updateStats('arcana_sent', { arcanumNumber, chatId });
 
-    if (fs.existsSync(pdfPath)) {
-      await bot.sendDocument(chatId, pdfPath, {
-        caption: `Ваш аркан дня рождения: ${arcanumNumber}`,
-        contentType: mime.lookup(pdfPath) || 'application/pdf',
-        filename: `arcanum_${arcanumNumber}.pdf`
-      });
-    } else {
-      await bot.sendMessage(chatId, 'Извините, файл с описанием аркана не найден.');
-    }
+    await bot.sendDocument(chatId, pdfPath, {
+      caption: `Ваш аркан дня рождения: ${arcanumNumber}`,
+      contentType: mime.lookup(pdfPath) || 'application/pdf',
+      filename: `arcanum_${arcanumNumber}.pdf`
+    });
+
     callback();
   } catch (error) {
+    logSecurityEvent('PDF_SEND_ERROR', chatId, error.message);
     console.error(error);
-    await bot.sendMessage(chatId, 'Произошла ошибка при обработке вашей даты.');
-    callback();
+    await bot.sendMessage(chatId, 'Произошла ошибка при отправке файла.');
+    callback(error);
   }
 }
 
-// Команда для администратора
-bot.onText(/\/stats/, (msg) => {
-  if (msg.chat.id.toString() !== ADMIN_ID) {
-    return bot.sendMessage(msg.chat.id, 'Эта команда доступна только администратору');
+// 14. Защищенные команды администратора
+bot.onText(/\/stats (.+)/, (msg, match) => {
+  const chatId = msg.chat.id.toString();
+  const password = match[1];
+
+  if (chatId !== process.env.ADMIN_ID || password !== process.env.ADMIN_PASSWORD) {
+    logSecurityEvent('ADMIN_ACCESS_DENIED', chatId);
+    return bot.sendMessage(chatId, 'Доступ запрещен.');
   }
 
   try {
-    const stats = JSON.parse(fs.readFileSync(STATS_FILE));
+    const stats = decryptData(fs.readFileSync(STATS_FILE, 'utf8'));
     let message = `📊 Статистика бота:
 👥 Всего пользователей: ${stats.totalUsers}
 🔮 Запросов арканов: ${Object.values(stats.arcanaRequests).reduce((a, b) => a + b, 0)}
@@ -462,12 +591,29 @@ bot.onText(/\/stats/, (msg) => {
       message += `\n• Аркан ${arcanum}: ${data.count} раз (${data.users.length} пользователей)`;
     });
 
-    bot.sendMessage(msg.chat.id, message);
-  } catch (err) {
-    console.error('Ошибка получения статистики:', err);
-    bot.sendMessage(msg.chat.id, 'Не удалось получить статистику');
-  }
-});
+    bot.sendMessage(chatId, message);
+      } catch (err) {
+        logSecurityEvent('ADMIN_STATS_ERROR', chatId, err.message);
+        bot.sendMessage(chatId, 'Не удалось получить статистику');
+      }
+    });
+    // 15. Основной обработчик сообщений с проверкой безопасности
+    bot.on('message', async (msg) => {
+      const chatId = msg.chat.id;
+      const text = msg.text || '';
+
+      // Проверка на приватный чат
+      if (msg.chat.type !== 'private') {
+        logSecurityEvent('NON_PRIVATE_CHAT', chatId);
+        return bot.sendMessage(chatId, 'Извините, я работаю только в личных чатах.');
+      }
+
+      // Защита от слишком длинных сообщений
+      if (text.length > 100) {
+        logSecurityEvent('LONG_MESSAGE', chatId, `Length: ${text.length}`);
+        return bot.sendMessage(chatId, 'Сообщение слишком длинное. Максимум 100 символов.');
+      }
+    });
 
 function calculateArcanumNumber(day) {
     if (day <= 22) return day;
